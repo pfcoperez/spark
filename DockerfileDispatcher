@@ -6,16 +6,20 @@ COPY dist /opt/sds/dist
 COPY docker/dispatcher/init.sh /sbin/init.sh
 COPY docker/dispatcher/service /etc/service/spark/run
 
-RUN apt-get purge -y openjdk-\* && \
+RUN apt-get purge -y java-\* && \
     sudo add-apt-repository -y ppa:openjdk-r/ppa && \
     apt-get update && \
-    apt-get install -y openjdk-8-jdk && \
+    curl -o /root/kms_utils-0.2.1.sh http://sodio.stratio.com/repository/paas/kms_utils/0.2.1/kms_utils-0.2.1.sh && \
+    apt-get install -y openjdk-8-jdk jq && \
     mv /opt/spark/dist /opt/spark/bak && \
     mv /opt/sds/dist /opt/spark/dist && \
     chmod -R 777 /opt/spark/dist/ && \
     rm -rf /opt/spark/bak && \
     chmod +x /sbin/init.sh && \
-    chmod +x /etc/service/spark/run
+    chmod +x /etc/service/spark/run && \
+    curl -o /usr/bin/jq -L https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64 -s && \
+    chmod +x /usr/bin/jq
+
 
 COPY docker/dispatcher/spark-env.sh /opt/spark/dist/conf/spark-env.sh
 

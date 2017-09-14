@@ -13,7 +13,7 @@ hose {
     DEV = { config ->
 
         doPackage(config)
-        doUT(config)
+        //doUT(config)
         parallel(DOCKER1: {
                     doDocker(conf: config, dockerfile:"DockerfileDispatcher")
                 }, DEPLOY: {
