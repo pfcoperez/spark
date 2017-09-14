@@ -107,34 +107,18 @@ object ConfigSecurity extends Logging{
     }
   }
 
-
   private def prepareEnvironment(vaultHost: String,
-                                vaultToken: String,
-                                secretOptions: Map[String,
-                                  Map[String, String]]): Map[String, String] = {
-    val seqOp: (Map[String, String], (String, Map[String, String])) => Map[String, String] =
-      (agg: Map[String, String], value: (String, Map[String, String])) => {
-        val (key, options) = value
-        val secretOptions = key match {
-          case "kerberos" => KerberosConfig.prepareEnviroment(vaultHost,
-            vaultToken,
-            options)
-          case "datastore" => SSLConfig.prepareEnvironment(vaultHost,
-            vaultToken,
-            SSLConfig.sslTypeDataStore,
-            options)
-          case "kafka" => SSLConfig.prepareEnvironment(vaultHost,
-            vaultToken,
-            SSLConfig.sslTypeKafkaStore,
-            options)
-          case _ => Map[String, String]()
-       }
-        secretOptions ++ agg
-      }
-    val combOp: (Map[String, String], Map[String, String]) => Map[String, String] =
-      (agg1: Map[String, String], agg2: Map[String, String]) => agg1 ++ agg2
-
-    secretOptions.aggregate(Map[String, String]())(seqOp, combOp)
-  }
+                                 vaultToken: String,
+                                 secretOptions: Map[String,
+                                   Map[String, String]]): Map[String, String] =
+    secretOptions flatMap {
+      case ("kerberos", options) =>
+        KerberosConfig.prepareEnviroment(vaultHost, vaultToken, options)
+      case ("datastore", options) =>
+        SSLConfig.prepareEnvironment(vaultHost, vaultToken, SSLConfig.sslTypeDataStore, options)
+      case ("kafka", options) =>
+        SSLConfig.prepareEnvironment(vaultHost, vaultToken, SSLConfig.sslTypeKafkaStore, options)
+      case _ => Map.empty[String, String]
+    }
 
 }
