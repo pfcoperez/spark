@@ -56,7 +56,12 @@ $(document).ajaxStart(function () {
 
 function createTemplateURI(appId) {
     var words = document.baseURI.split('/');
-    var ind = words.indexOf("proxy");
+    var ind = words.indexOf("proxied");
+    if(ind > 0) {
+        var separator = words[words.length-1].length ? "/" : "";
+        return document.baseURI + separator  + 'static/executorspage-template.html';
+    }
+    ind = words.indexOf("proxy");
     if (ind > 0) {
         var baseURI = words.slice(0, ind + 1).join('/') + '/' + appId + '/static/executorspage-template.html';
         return baseURI;
@@ -71,7 +76,13 @@ function createTemplateURI(appId) {
 
 function getStandAloneppId(cb) {
     var words = document.baseURI.split('/');
-    var ind = words.indexOf("proxy");
+    var ind = words.indexOf("proxied");
+    if(ind > 0) {
+        var appId = words[ind - 1]
+        cb(appId);
+        return;
+    }
+    ind = words.indexOf("proxy");
     if (ind > 0) {
         var appId = words[ind + 1];
         cb(appId);

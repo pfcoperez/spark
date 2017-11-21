@@ -40,7 +40,8 @@ import org.apache.spark.ui.SparkUI
  * HistoryServerSuite.
  */
 @Path("/v1")
-private[v1] class ApiRootResource extends UIRootFromServletContext {
+private[v1] class
+ApiRootResource extends UIRootFromServletContext {
 
   @Path("applications")
   def getApplicationList(): ApplicationListResource = {
@@ -205,7 +206,10 @@ private[spark] object ApiRootResource {
 
   def getServletHandler(uiRoot: UIRoot): ServletContextHandler = {
     val jerseyContext = new ServletContextHandler(ServletContextHandler.NO_SESSIONS)
-    jerseyContext.setContextPath("/api")
+    val basePath = sys.props.get("spark.ui.proxyBase")
+      .orElse(sys.env.get("APPLICATION_WEB_PROXY_BASE"))
+      .getOrElse("")
+    jerseyContext.setContextPath(basePath + "/api")
     val holder: ServletHolder = new ServletHolder(classOf[ServletContainer])
     holder.setInitParameter(ServerProperties.PROVIDER_PACKAGES, "org.apache.spark.status.api.v1")
     UIRootFromServletContext.setUiRoot(jerseyContext, uiRoot)
