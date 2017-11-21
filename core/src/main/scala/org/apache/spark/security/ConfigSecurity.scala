@@ -16,17 +16,24 @@
  */
 package org.apache.spark.security
 
+import scala.util.{Failure, Success, Try}
+
 import org.apache.spark.internal.Logging
 
 object ConfigSecurity extends Logging{
 
   var vaultToken: Option[String] = None
   val vaultHost: Option[String] = sys.env.get("VAULT_HOST")
-  val vaultUri: Option[String] = {
-    (sys.env.get("VAULT_PROTOCOL"), vaultHost, sys.env.get("VAULT_PORT")) match {
+  val vaultUri: Option[String] =
+    getVaultUri(sys.env.get("VAULT_PROTOCOL"), vaultHost, sys.env.get("VAULT_PORT"))
+
+  def getVaultUri(vaultProtocol: Option[String],
+                  vaultHost: Option[String],
+                  vaultPort: Option[String]): Option[String] = {
+    (vaultProtocol, vaultHost, vaultPort) match {
       case (Some(vaultProtocol), Some(vaultHost), Some(vaultPort)) =>
         val vaultUri = s"$vaultProtocol://$vaultHost:$vaultPort"
-        logDebug(s"vault uri: $vaultUri found, any Vault Connection will use it")
+        logDebug(s"Vault uri: $vaultUri found, any Vault Connection will use it")
         Option(vaultUri)
       case _ =>
         logDebug("No Vault information found, any Vault Connection will fail")
@@ -52,38 +59,26 @@ object ConfigSecurity extends Logging{
     else Map()
   }
 
-  private def extractConfFromEnv(env: Map[String, String]): Map[String,
-    Map[String, String]] = {
-    val sparkSecurityPrefix = "spark_security_"
-    val extract: ((String, String)) => String = (keyValue: (String, String)) => {
-      val (key, _) = keyValue
-      key match {
-        case key if key.toLowerCase.contains(sparkSecurityPrefix + "hdfs") => "hdfs"
-        case _ => ""
-      }
-    }
-    env.groupBy(extract).filter(_._2.exists(_._1.toLowerCase.contains("enable")))
-      .flatMap{case (key, value) =>
-        if (key.nonEmpty) Option((key, value.map{case (propKey, propValue) =>
-          (propKey.split(sparkSecurityPrefix.toUpperCase).tail.head, propValue)
-        }))
-        else None
-      }
-  }
 
-  private def extractSecretFromEnv(env: Map[String, String]): Map[String,
+   def extractSecretFromEnv(env: Map[String, String]): Map[String,
     Map[String, String]] = {
     val sparkSecurityPrefix = "spark_security_"
 
     val extract: ((String, String)) => String = (keyValue: (String, String)) => {
       val (key, _) = keyValue
-      key match {
-        case key if key.toLowerCase.contains(sparkSecurityPrefix + "hdfs") => "hdfs"
-        case key if key.toLowerCase.contains(sparkSecurityPrefix + "kerberos") => "kerberos"
-        case key if key.toLowerCase.contains(sparkSecurityPrefix + "datastore") => "datastore"
-        case key if key.toLowerCase.contains(sparkSecurityPrefix + "kafka") => "kafka"
-        case _ => ""
 
+      val securityProp = key.toLowerCase
+
+      if (securityProp.startsWith(sparkSecurityPrefix)) {
+        val result = Try(securityProp.split("_")(2))
+         result match {
+          case Success(value) => value
+          case Failure(e) =>
+            throw new IllegalArgumentException(
+              s"Your SPARK_SECURITY property: $securityProp is malformed")
+        }
+      } else {
+        ""
       }
     }
 
@@ -107,34 +102,19 @@ object ConfigSecurity extends Logging{
     }
   }
 
-
   private def prepareEnvironment(vaultHost: String,
-                                vaultToken: String,
-                                secretOptions: Map[String,
-                                  Map[String, String]]): Map[String, String] = {
-    val seqOp: (Map[String, String], (String, Map[String, String])) => Map[String, String] =
-      (agg: Map[String, String], value: (String, Map[String, String])) => {
-        val (key, options) = value
-        val secretOptions = key match {
-          case "kerberos" => KerberosConfig.prepareEnviroment(vaultHost,
-            vaultToken,
-            options)
-          case "datastore" => SSLConfig.prepareEnvironment(vaultHost,
-            vaultToken,
-            SSLConfig.sslTypeDataStore,
-            options)
-          case "kafka" => SSLConfig.prepareEnvironment(vaultHost,
-            vaultToken,
-            SSLConfig.sslTypeKafkaStore,
-            options)
-          case _ => Map[String, String]()
-       }
-        secretOptions ++ agg
-      }
-    val combOp: (Map[String, String], Map[String, String]) => Map[String, String] =
-      (agg1: Map[String, String], agg2: Map[String, String]) => agg1 ++ agg2
-
-    secretOptions.aggregate(Map[String, String]())(seqOp, combOp)
-  }
+                                 vaultToken: String,
+                                 secretOptions: Map[String,
+                                   Map[String, String]]): Map[String, String] =
+    secretOptions flatMap {
+      case ("kerberos", options) =>
+        KerberosConfig.prepareEnviroment(vaultHost, vaultToken, options)
+      case ("datastore", options) =>
+        SSLConfig.prepareEnvironment(
+            vaultHost, vaultToken, SSLConfig.sslTypeDataStore, options)
+      case ("db", options) =>
+        DBConfig.prepareEnvironment(vaultHost, vaultToken, options)
+      case _ => Map.empty[String, String]
+    }
 
 }

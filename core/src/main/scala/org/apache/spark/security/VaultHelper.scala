@@ -32,8 +32,8 @@ object VaultHelper extends Logging {
     logDebug(s"Requesting login from app and role: $requestUrl")
     val replace: String = jsonRoleSecretTemplate.replace("_replace_role_", roleId)
       .replace("_replace_secret_", secretId)
-    logInfo(s"getting secret: $secretId and role: $roleId")
-    logInfo(s"generated JSON: $replace")
+    logDebug(s"getting secret: $secretId and role: $roleId")
+    logDebug(s"generated JSON: $replace")
     val jsonAppRole = replace
     HTTPHelper.executePost(requestUrl, "auth",
       None, Some(jsonAppRole))("client_token").asInstanceOf[String]
@@ -43,7 +43,7 @@ object VaultHelper extends Logging {
                          role: String): String = {
     val requestUrl = s"$vaultUrl/v1/auth/approle/role/$role/role-id"
     if (!token.isDefined) token = {
-      logDebug(s"Requesting token from app role:")
+      logDebug(s"Requesting token from app role: $role")
       Option(VaultHelper.getTokenFromAppRole(vaultUrl,
         sys.env("VAULT_ROLE_ID"),
         sys.env("VAULT_SECRET_ID")))
@@ -57,7 +57,7 @@ object VaultHelper extends Logging {
                            role: String): String = {
     val requestUrl = s"$vaultUrl/v1/auth/approle/role/$role/secret-id"
     if (!token.isDefined) token = {
-      logDebug(s"Requesting token from app role:")
+      logDebug(s"Requesting token from app role: $role")
       Option(VaultHelper.getTokenFromAppRole(vaultUrl,
         sys.env("VAULT_ROLE_ID"),
         sys.env("VAULT_SECRET_ID")))
@@ -90,20 +90,22 @@ object VaultHelper extends Logging {
     (keytab64, principal)
   }
 
-  @deprecated
-  def getRootCA(vaultUrl: String, token: String): String = {
-    val certVaultPath = "/v1/ca-trust/certificates/"
-    val requestUrl = s"$vaultUrl/$certVaultPath"
-    val listCertKeysVaultPath = s"$requestUrl?list=true"
+  // TODO refactor these two functions into one
+  def getMesosPrincipalAndSecret(vaultUrl: String,
+                                 token: String,
+                                 instanceName: String): (String, String) = {
+    getPassPrincipalFromVault(vaultUrl, s"/v1/userland/passwords/$instanceName/mesos", token)
+  }
 
-    logDebug(s"Requesting Cert List: $listCertKeysVaultPath")
-    val keys = HTTPHelper.executeGet(listCertKeysVaultPath,
-      "data", Some(Seq(("X-Vault-Token", token))))("keys").asInstanceOf[List[String]]
-
-    keys.flatMap(key => {
-      HTTPHelper.executeGet(s"$requestUrl$key",
-        "data", Some(Seq(("X-Vault-Token", token)))).find(_._1.endsWith("_crt"))
-    }).map(_._2).mkString
+  def getPassPrincipalFromVault(vaultUrl: String,
+                                vaultPath: String,
+                                token: String): (String, String) = {
+    val requestUrl = s"$vaultUrl/$vaultPath"
+    logDebug(s"Requesting user and pass: $requestUrl")
+    val data = HTTPHelper.executeGet(requestUrl, "data", Some(Seq(("X-Vault-Token", token))))
+    val pass = data.find(_._1.contains("pass")).get._2.asInstanceOf[String]
+    val principal = data.find(_._1.contains("user")).get._2.asInstanceOf[String]
+    (pass, principal)
   }
 
   def getTrustStore(vaultUrl: String, token: String, certVaultPath: String): String = {
@@ -115,14 +117,6 @@ object VaultHelper extends Logging {
       "data", Some(Seq(("X-Vault-Token", token))))
     val trustStore = data.find(_._1.endsWith("_crt")).get._2.asInstanceOf[String]
     trustStore
-  }
-
-  def getCertPassFromVault(vaultUrl: String, token: String): String = {
-    val certPassVaultPath = "/v1/ca-trust/passwords/default/keystore"
-    logDebug(s"Requesting Cert Pass: $certPassVaultPath")
-    val requestUrl = s"$vaultUrl/$certPassVaultPath"
-    HTTPHelper.executeGet(requestUrl,
-      "data", Some(Seq(("X-Vault-Token", token))))("pass").asInstanceOf[String]
   }
 
   def getCertPassForAppFromVault(vaultUrl: String,
@@ -144,15 +138,6 @@ object VaultHelper extends Logging {
     val certs = data.find(_._1.endsWith("_crt")).get._2.asInstanceOf[String]
     val key = data.find(_._1.endsWith("_key")).get._2.asInstanceOf[String]
     (key, certs)
-  }
-
-  def getPassForAppFromVault(vaultUrl: String,
-                             vaultPath: String,
-                             token: String): String = {
-    logDebug(s"Requesting Pass for App: $vaultPath")
-    val requestUrl = s"$vaultUrl/$vaultPath"
-    HTTPHelper.executeGet(requestUrl,
-      "data", Some(Seq(("X-Vault-Token", token))))("token").asInstanceOf[String]
   }
 
   def getRealToken(vaultUrl: String, token: String): String = {

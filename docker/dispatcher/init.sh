@@ -1,6 +1,6 @@
 #!/bin/bash
+
 set -e
-set -x
 
 export DISPATCHER_PORT=7077
 export DISPATCHER_UI_PORT=7076

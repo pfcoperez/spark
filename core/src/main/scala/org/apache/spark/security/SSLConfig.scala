@@ -16,14 +16,17 @@
 */
 package org.apache.spark.security
 
-import java.io.{ByteArrayInputStream, File, FileOutputStream}
+import java.io._
 import java.nio.file.{Files, Paths}
 import java.nio.file.attribute.PosixFilePermissions
 import java.security._
+import java.security.KeyFactory
 import java.security.cert.CertificateFactory
+import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.RSAPrivateCrtKeySpec
 import javax.xml.bind.DatatypeConverter
 
+import org.apache.commons.ssl.PKCS8Key
 import sun.security.util.DerInputStream
 
 import org.apache.spark.internal.Logging
@@ -31,7 +34,6 @@ import org.apache.spark.internal.Logging
 object SSLConfig extends Logging {
 
   val sslTypeDataStore = "DATASTORE"
-  val sslTypeKafkaStore = "KAFKA"
 
   def prepareEnvironment(vaultHost: String,
                          vaultToken: String,
@@ -64,6 +66,10 @@ object SSLConfig extends Logging {
       val (key, certs) =
         VaultHelper.getCertKeyForAppFromVault(vaultHost, vaultKeystorePath.get, vaultToken)
 
+      pemToDer(key)
+      generatePemFile(certs, "cert.crt")
+      generatePemFile(trustStore, "ca.crt")
+
       val pass = VaultHelper.getCertPassForAppFromVault(
         vaultHost, vaultKeystorePassPath.get, vaultToken)
 
@@ -87,9 +93,9 @@ object SSLConfig extends Logging {
       -> VaultHelper.getCertPassForAppFromVault(vaultHost, vaultKeyPassPath.get, vaultToken))
 
     val certFilesPath =
-      Map(sparkSSLPrefix + "cert.path" -> s"${sys.env.get("SPARK_SSL_CERT_PATH")}/cert.crt",
-        sparkSSLPrefix + "key.pkcs8" -> s"${sys.env.get("SPARK_SSL_CERT_PATH")}/key.pkcs8",
-        sparkSSLPrefix + "root.cert" -> s"${sys.env.get("SPARK_SSL_CERT_PATH")}/caroot.crt")
+      Map(s"$sparkSSLPrefix${sslType.toLowerCase}.certPem.path" -> "/tmp/cert.crt",
+        s"$sparkSSLPrefix${sslType.toLowerCase}.keyPKCS8.path" -> "/tmp/key.pkcs8",
+        s"$sparkSSLPrefix${sslType.toLowerCase}.caPem.path" -> "/tmp/ca.crt")
 
     trustStoreOptions ++ keyStoreOptions ++ keyPass ++ certFilesPath
   }
@@ -118,8 +124,38 @@ object SSLConfig extends Logging {
     file.getAbsolutePath
   }
 
+  def generatePemFile(pem: String, fileName: String): Unit = {
+    formatPem(pem)
+    val bosCA = new BufferedOutputStream(new FileOutputStream(s"/tmp/$fileName"))
+    bosCA.write(formatPem(pem).getBytes)
+    bosCA.close()
+  }
 
-  // TODO Improvent get passwords keys and jks key
+  // Gets raw pem from vault (without \n and folding) and outputs a well-formatted pem
+
+  def formatPem(pemRaw: String): String = {
+    val (begin, end) = extractFlagsFromCert(pemRaw)
+    val pem = getArrayFromCert(pemRaw)
+    pem.map( data => s"$begin\n${data.sliding(64, 64).mkString("\n")}\n$end")
+      .mkString("\n")
+      .concat("\n")
+  }
+
+  def pemToDer(data: String): Unit = {
+    val (begin, end) = ("-----BEGIN RSA PRIVATE KEY-----", "-----END RSA PRIVATE KEY-----")
+    require(data.startsWith(begin), "BEGIN RSA PRIVATE KEY flag not found")
+    val tokens = data.split(begin)(1).split(end)
+    val keyByted = DatatypeConverter.parseBase64Binary(tokens(0))
+    val pkcs8 = new PKCS8Key(keyByted, null)
+    val decrypted = pkcs8.getDecryptedBytes
+    val spec = new PKCS8EncodedKeySpec(decrypted)
+    val pk = KeyFactory.getInstance("RSA").generatePrivate(spec)
+    val bos = new BufferedOutputStream(new FileOutputStream("/tmp/key.pkcs8"))
+    bos.write(pk.getEncoded)
+    bos.close()
+  }
+
+
   def generateKeyStore(sslType: String,
                        cas: String,
                        firstCA: String,
@@ -183,15 +219,20 @@ object SSLConfig extends Logging {
   private def generateCertificateFromDER(certBytes: Array[Byte]): cert.Certificate =
     CertificateFactory.getInstance("X.509").generateCertificate(new ByteArrayInputStream(certBytes))
 
-  private def getArrayFromCA(ca: String): Array[String] = {
-    val splittedBy = ca.takeWhile(_ == '-')
-    val begin = s"$splittedBy${ca.split(splittedBy).tail.head}$splittedBy"
+  private def getArrayFromCert(cert: String): Array[String] = {
+    val (begin, end) = extractFlagsFromCert(cert)
+    cert.split(begin).tail.map(_.split(end).head)
+  }
+
+  private def extractFlagsFromCert(cert: String): (String, String) = {
+    val splittedBy = cert.takeWhile(_ == '-')
+    val begin = s"$splittedBy${cert.split(splittedBy).tail.head}$splittedBy"
     val end = begin.replace("BEGIN", "END")
-    ca.split(begin).tail.map(_.split(end).head)
+    (begin, end)
   }
 
   private def getBase64FromCAs(cas: String): Array[Array[Byte]] = {
-    val pattern = getArrayFromCA(cas)
+    val pattern = getArrayFromCert(cas)
     pattern.map(value => {
       DatatypeConverter.parseBase64Binary(value)
     })

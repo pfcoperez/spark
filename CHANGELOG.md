@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.1.0.6 (Upcoming)
+
+* Added mesos constraints management to spark driver
+* Added a secure way to retrieve user and passwords information from vault
+
+## 2.1.0.5 (November 07, 2017)
+
+* Connection to Elastic with TLS
+* Connection to Postgres with TLS, unified in datastore identity
+* Removed Kafka identity, unified in datastore identity
+* Removed script connection to Postgres 
+* Removed Mesos secret and principal from curls
+* Added configurable HDFS timeout
+
 ## 2.1.0.4 (August 17, 2017)
 
 * Spark Dispatcher retrieves Mesos Principal and Secret from Vault

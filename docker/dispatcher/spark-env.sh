@@ -13,53 +13,6 @@ if [ "${SPARK_VIRTUAL_USER_NETWORK}" = "true" ]; then
    export LIBPROCESS_IP=$HOST
 fi
 
-if [ "${SPARK_DATASTORE_SSL_ENABLE}" == "true" ]; then
-    source /root/kms_utils-0.2.1.sh
-
-    VAULT_HOSTS=$VAULT_HOST
-    export SPARK_SSL_CERT_PATH="/tmp"
-    SERVICE_ID=$APP_NAME
-    INSTANCE=$APP_NAME
-    VAULT_URI="$VAULT_PROTOCOL://$VAULT_HOSTS:$VAULT_PORT"
-
-    #0--- IF VAULT_ROLE_ID IS NOT EMPTY [!-z $YOUR_VAR] IT MEANS THAT WE ARE DEALING WITH SPARK DRIVER
-    if [ ! -z "$VAULT_ROLE_ID" ]; then
-        echo "Vault role id proved, signing in"
-        login
-    else
-        #1--- FROM TEMP TOKEN GET APP TOKEN
-        echo "No vault role ID provided, unwrapping OTT"
-        VAULT_TOKEN=$(curl -k -L -XPOST -H "X-Vault-Token:$VAULT_TEMP_TOKEN" "$VAULT_URI/v1/sys/wrapping/unwrap" -s| python -m json.tool | python -c 'import json,sys;obj=json.load(sys.stdin);print obj["data"]["token"]')
-    fi
-
-    #2--- GET SECRETS WITH APP TOKEN
-    getCert "userland" "$INSTANCE" "$SERVICE_ID" "PEM" $SPARK_SSL_CERT_PATH
-
-    #GET CA-BUNDLE for given CA
-    #getCAbundle $SPARK_SSL_CERT_PATH "PEM"
-    JSON_KEY="${CA_NAME}_crt"
-    CA_BUNDLE=$(curl -k -XGET -H "X-Vault-Token:$VAULT_TOKEN" "$VAULT_URI/v1/ca-trust/certificates/$CA_NAME" -s |  jq -cMSr --arg fqdn "" ".data[\"$JSON_KEY\"]")
-
-    echo "$CA_BUNDLE" > ${SPARK_SSL_CERT_PATH}/caroot.crt
-    sed -i 's/-----BEGIN CERTIFICATE-----/-----BEGIN CERTIFICATE-----\n/g' ${SPARK_SSL_CERT_PATH}/caroot.crt
-    sed -i 's/-----END CERTIFICATE-----/\n-----END CERTIFICATE-----\n/g' ${SPARK_SSL_CERT_PATH}/caroot.crt
-    sed -i 's/-----END CERTIFICATE----------BEGIN CERTIFICATE-----/-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----/g'  ${SPARK_SSL_CERT_PATH}/caroot.crt
-
-
-
-    #3--- RESTORE TEMP TOKEN
-    export VAULT_TEMP_TOKEN=$(curl -k -L -XPOST -H "X-Vault-Wrap-TTL: 6000" -H "X-Vault-Token:$VAULT_TOKEN" -d "{\"token\": \"$VAULT_TOKEN\" }" "$VAULT_URI/v1/sys/wrapping/wrap" -s| python -m json.tool | python -c 'import json,sys;obj=json.load(sys.stdin);print obj["wrap_info"]["token"]')
-
-    fold -w64 "${SPARK_SSL_CERT_PATH}/${SERVICE_ID}.key" >> "${SPARK_SSL_CERT_PATH}/aux.key"
-
-    mv "${SPARK_SSL_CERT_PATH}/aux.key" "${SPARK_SSL_CERT_PATH}/${SERVICE_ID}.key"
-
-    openssl pkcs8 -topk8 -inform pem -in "${SPARK_SSL_CERT_PATH}/${SERVICE_ID}.key" -outform der -nocrypt -out "${SPARK_SSL_CERT_PATH}/key.pkcs8"
-
-    mv $SPARK_SSL_CERT_PATH/${SERVICE_ID}.pem $SPARK_SSL_CERT_PATH/cert.crt
-
-fi
-
 # I first set this to MESOS_SANDBOX, as a Workaround for MESOS-5866
 # But this fails now due to MESOS-6391, so I'm setting it to /tmp
 MESOS_DIRECTORY=/tmp

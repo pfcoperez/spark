@@ -24,26 +24,48 @@ import org.apache.spark.internal.Logging
 
 object HDFSConfig extends Logging{
 
-  private def downloadFile(url: String, fileToDownload: String, outputhPath: String) {
+  private def downloadFile(url: String,
+                           fileToDownload: String,
+                           outputhPath: String,
+                           connectTimeout: Int,
+                           readTimeout: Int) {
     logInfo(s"extracting $url/$fileToDownload")
     new File(outputhPath).mkdirs
-    val src = scala.io.Source.fromURL(s"$url/$fileToDownload")
+    val src = get(s"$url/$fileToDownload", connectTimeout, readTimeout).mkString("")
     val downloadFile = Files.createFile(Paths.get(s"$outputhPath/$fileToDownload"),
       PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
     downloadFile.toFile.deleteOnExit() // just to be sure
-    Files.write(downloadFile, src.mkString("").getBytes)
+    Files.write(downloadFile, src.getBytes)
   }
+
+  private def get(url: String,
+                  connectTimeout: Int,
+                  readTimeout: Int): String = {
+    import java.net.{URL, HttpURLConnection}
+    val requestMethod = "GET"
+    val connection = (new URL(url)).openConnection.asInstanceOf[HttpURLConnection]
+    connection.setConnectTimeout(connectTimeout)
+    connection.setReadTimeout(readTimeout)
+    connection.setRequestMethod(requestMethod)
+    val inputStream = connection.getInputStream
+    val content = scala.io.Source.fromInputStream(inputStream).mkString("")
+    if (inputStream != null) inputStream.close
+    content
+  }
+
 
   def prepareEnviroment(options: Map[String, String]): Map[String, String] = {
     require(options.get("HDFS_CONF_URI").isDefined,
       "a proper HDFS URI must be configured to get Hadoop Configuration")
     require(sys.env.get("HADOOP_CONF_DIR").isDefined,
       "a proper Hadoop Conf Dir must be configured to store Hadoop Configuration")
+    val connectTimeout: Int = options.get("HDFS_CONF_CONNECT_TIMEOUT").getOrElse("5000").toInt
+    val readTimeout: Int = options.get("HDFS_CONF_READ_TIMEOUT").getOrElse("5000").toInt
     val hadoopConfUri = options.get("HDFS_CONF_URI").get
     val hadoopConfDir = sys.env.get("HADOOP_CONF_DIR").get
-    downloadFile(hadoopConfUri, "core-site.xml", hadoopConfDir)
-    downloadFile(hadoopConfUri, "hdfs-site.xml", hadoopConfDir)
-    downloadFile(hadoopConfUri, "krb5.conf", "/etc/")
+    downloadFile(hadoopConfUri, "core-site.xml", hadoopConfDir, connectTimeout, readTimeout)
+    downloadFile(hadoopConfUri, "hdfs-site.xml", hadoopConfDir, connectTimeout, readTimeout)
+    downloadFile(hadoopConfUri, "krb5.conf", "/etc/", connectTimeout, readTimeout)
     Map.empty[String, String]
   }
 }

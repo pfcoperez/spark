@@ -21,7 +21,7 @@
   <parent>
     <groupId>com.stratio.spark</groupId>
     <artifactId>spark-parent_2.11</artifactId>
-    <version>2.1.0.4</version>
+    <version>2.1.0.6-RC2-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
 
@@ -149,7 +149,11 @@
       <artifactId>javax.servlet-api</artifactId>
       <version>${javaxservlet.version}</version>
     </dependency>
-
+    <dependency>
+      <groupId>ca.juliusdavies</groupId>
+      <artifactId>not-yet-commons-ssl</artifactId>
+      <version>0.3.11</version>
+    </dependency>
     <dependency>
       <groupId>org.apache.commons</groupId>
       <artifactId>commons-lang3</artifactId>
